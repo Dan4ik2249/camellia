@@ -105,8 +105,8 @@ SubKey keyScheduling(key_init ki){
 		Roll128(KL1, KL2, 15); //rotate another 15 left (60 total) KL
 		sk.k[9] = KL2;
 		Roll128(KA1, KA2, 15); //rotate another 15 left (60 total) KA
-		sk.k[10] = KL1;
-		sk.k[11] = KL2;
+		sk.k[10] = KA1;
+		sk.k[11] = KA2;
 		Roll128(KL1, KL2, 17); //rotate another 17 left (77 total) KL
 		sk.ke[2] = KL1;
 		sk.ke[3] = KL2;
@@ -186,15 +186,15 @@ uint64_t F(uint64_t F_IN, uint64_t KE){
 	uint8_t y1, y2, y3, y4, y5, y6, y7, y8;
 
 	x = F_IN ^ KE;
-	t1 = x >> 56;
-	t2 = (x >> 48) & MASK8;
-	t3 = (x >> 40) & MASK8;
-	t4 = (x >> 32) & MASK8;
-	t5 = (x >> 24) & MASK8;
-	t6 = (x >> 16) & MASK8;
-	t7 = (x >> 8) & MASK8;
+	t1 = (uint8_t)(x >> 56);
+	t2 = (uint8_t)((x >> 48) & MASK8);
+	t3 = (uint8_t)((x >> 40) & MASK8);
+	t4 = (uint8_t)((x >> 32) & MASK8);
+	t5 = (uint8_t)((x >> 24) & MASK8);
+	t6 = (uint8_t)((x >> 16) & MASK8);
+	t7 = (uint8_t)((x >> 8) & MASK8);
+	t8 = (uint8_t)(x & MASK8);
 
-	t8 = x & MASK8;
 	t1 = SBOX1[t1];
 	t2 = Roll8(SBOX1[t2], 1); //SBOX2[x] = SBOX1[x] <<< 1
 	t3 = Roll8(SBOX1[t3], 7); //SBOX3[x] = SBOX1[x] <<< 7
@@ -214,7 +214,7 @@ uint64_t F(uint64_t F_IN, uint64_t KE){
 	y7 = t3 ^ t4 ^ t5 ^ t6 ^ t8;
 	y8 = t1 ^ t4 ^ t5 ^ t6 ^ t7;
 
-	F_OUT = ((uint64_t)y1 << 56) | ((uint64_t)y2 << 48) | ((uint64_t)y3 << 40) | ((uint64_t)y4 << 32) | ((uint64_t)y5 << 24) | ((uint64_t)y6 << 16) | ((uint64_t)y7 << 8) | (uint64_t)y8;
+	F_OUT = ((uint64_t)y1 << 56) + ((uint64_t)y2 << 48) + ((uint64_t)y3 << 40) + ((uint64_t)y4 << 32) + ((uint64_t)y5 << 24) + ((uint64_t)y6 << 16) + ((uint64_t)y7 << 8) + (uint64_t)y8;
 	return F_OUT;
 }
 
@@ -294,7 +294,7 @@ uint8_t *ProcBlock(uint8_t *input, SubKey sk, key_init ki){
 	D2 = D2 ^ sk.kw[2];	// Postwhitening
 	D1 = D1 ^ sk.kw[3];
 
-	uint8_t *res = new uint8_t[16]{0};
+	uint8_t *res = new uint8_t[16]{};
 	Uint64ToMass(res, D2, 0);
 	Uint64ToMass(res, D1, 8);
 	
@@ -319,9 +319,7 @@ SubKey DecryptionMode(SubKey sk, key_init ki){
 int main(int argc, char* argv[]){
 	
 	key_init ki;
-	uint8_t *mainProc;
-	char *buff;
-	uint8_t *data;
+	uint8_t *mainProc = NULL;
 	char mode;
 	string filein, fileout;
 	string msg1, msg2;
@@ -345,7 +343,7 @@ int main(int argc, char* argv[]){
 	};
 	
 	SubKey sk = keyScheduling(ki);
-
+	
 	switch(mode){
 		case '1':
 			{
@@ -386,7 +384,7 @@ int main(int argc, char* argv[]){
 	ofstream fout(fileout, ios_base::app | ios_base::binary);
 	if (fout.is_open()){
 		cout << "------------" << endl;
-                cout << "File " << fileout << " created" << endl;
+                //cout << "File " << fileout << " created" << endl;
 		cout << "------------" << endl;
         }
         else {
@@ -394,38 +392,26 @@ int main(int argc, char* argv[]){
                 return __LINE__;
         }
 	
-	int size;
-//	fin.seekg(666, ios_base::beg);//496
+	int size = 0;
+
 	while (!fin.eof()){
-//		fin.seekg(size, ios_base::beg);
-		buff = new char[16];
-	        data = new uint8_t[16];
+		uint8_t buff[16]{};
+                fin.read((char*)buff, 16);
 		
-		//cout << "1" << endl;
-		fin.read(buff, 16);
-		for (int i = 0; i < 16; i++) {
-			//if (buff[i] == '\n') break;
-			data[i] = buff[i];
-		//	cout << "2" << endl;
-		}
-		mainProc = ProcBlock(data, sk, ki);
+                cout << buff;
+		mainProc = ProcBlock(buff, sk, ki);
 		fout << mainProc;
-		cout << data;
-		//cout << "3" << endl;
+		size += strlen((char*)buff);
 
-		size += strlen(buff);
-//		fout.flush();
-
-		delete [] buff;
-		delete [] data;
+		delete [] mainProc;
 	}
 
-	cout << size << endl;
+	cout << size << endl;	
 	fin.close();
 	fout.close();
 
-
-/*	uint8_t *dec;		
+/*
+	uint8_t *dec;		
 	cout << dataT << endl;
 	int size = strlen(len);
 	int count = 0;
@@ -436,9 +422,8 @@ int main(int argc, char* argv[]){
 			if (dataT[i+count] == '\0') break;
 			buffT[i] = dataT[i+count];}
 		
-
 		mainProc = ProcBlock(buffT, sk, ki);
-//		cout << mainProc << endl;
+		cout << mainProc << endl;
 		sk = DecryptionMode(sk, ki);
 		dec = ProcBlock(mainProc, sk, ki);
 		cout << dec;
