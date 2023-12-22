@@ -1,16 +1,17 @@
 #include <iostream>
+#include <stdio.h>
 #include <string>
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
 
 #include "camellia.h"
-#include "ttt.h"
 
 using namespace std;
 
 #define MASK8 0xFF
 #define MASK32 0xFFFFFFFF
+#define BLOCK_SIZE 16
 
 uint64_t F(uint64_t, uint64_t);
 
@@ -316,120 +317,155 @@ SubKey DecryptionMode(SubKey sk, key_init ki){
 	return sk;	
 }
 
+uint64_t get_file_size(FILE *f){
+	uint64_t size;
+	fseek(f, 0, SEEK_END);
+	size = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	return size;
+}
+
+uint8_t get_size_pad(uint64_t size){
+	if ((BLOCK_SIZE - (size % BLOCK_SIZE)) == BLOCK_SIZE){
+		return 0;
+	}
+	return BLOCK_SIZE - (size % BLOCK_SIZE);
+}
+
+static void set_padding(uint8_t *in_buff, uint8_t pad_size, uint64_t size){
+	if (pad_size > 0){
+		uint64_t i;
+		in_buff[i] = 0x80;
+		for(i = size+1; i < size + pad_size; i++ ){in_buff[i] = 0x00;}
+	}
+}
+
+int Encrypt_file(FILE *in, FILE * out, key_init ki, uint64_t size, SubKey sk){
+	uint8_t *mainProc = NULL;
+	uint8_t buffer[16]{};
+	int n = 0;
+
+	while(size){
+                memset(buffer, 0, BLOCK_SIZE);
+
+                if ((n = fread(buffer, sizeof(uint8_t), BLOCK_SIZE, in)) == EOF) {
+                        perror("Cannot read file");
+                        return __LINE__;
+                }
+		
+                if (n < BLOCK_SIZE) {
+                        set_padding(buffer, get_size_pad(size), size);
+                        size = 0;
+                        n = BLOCK_SIZE;
+                }
+                else {
+                        size -= BLOCK_SIZE;
+                }
+                mainProc=ProcBlock(buffer, sk, ki);
+
+                if ((fwrite(mainProc, sizeof(uint8_t), n, out)) == EOF) {
+                        perror("Cannot write file");
+                        return __LINE__;
+                }
+        }
+	return 0;
+}
+
+int Decrypt_file(FILE *in, FILE * out, key_init ki, uint64_t size, SubKey sk){
+        uint8_t *mainProc = NULL;
+        uint8_t buffer[16]{};
+        int n = 0;
+
+        while(size){
+                memset(buffer, 0, BLOCK_SIZE);
+
+                if ((n = fread(buffer, sizeof(uint8_t), BLOCK_SIZE, in)) == EOF) {
+                        perror("Cannot read file");
+                        return __LINE__;
+                }
+
+		mainProc=ProcBlock(buffer, sk, ki);
+		if (size < BLOCK_SIZE + 1){
+			while(mainProc[n]!=0x80){
+				n--;
+			}
+			size = 0;
+		}
+                else {
+                        size -= BLOCK_SIZE;
+		}
+
+                if ((fwrite(mainProc, sizeof(uint8_t), n, out)) == EOF) {
+                        perror("Cannot write file");
+                        return __LINE__;
+                }
+        }
+        return 0;
+}
+
 int main(int argc, char* argv[]){
 	
 	key_init ki;
-	uint8_t *mainProc = NULL;
-	char mode;
-	string filein, fileout;
-	string msg1, msg2;
+	FILE *in = NULL;
+        FILE *out = NULL;
+        char mode = 0;
+	char filein[64]{};
+	char fileout[64]{};
 
 	cout << "Please select the mode:" << endl;
-	cout << "1. Encryption mode" << endl;
-	cout << "2. Decryptin mode" << endl;
-	cout << "3. Exit" << endl;
-	cin >> mode;
+        cout << "1. Encryption mode" << endl;
+        cout << "2. Decryptin mode" << endl;
+        cout << "3. Exit" << endl;
+        cin >> mode;
 
-	//cout << "Please enter password: ";
-	//cin >> ki.key;
-	ki.key = "hellow_world_key";
-//	ki.key = "0123456789abcdeffedcba9876543210";
-	ki.len_key = ki.key.length();
-	while (ki.len_key != 16 && ki.len_key != 24 && ki.len_key != 32){
-		cout << "Key must 128-, 192-, or 256-bit (16, 24, or 32 bytes respectively)" << endl;
-		cout << "Please enter password: ";
- 	      	cin >> ki.key;
-	       	ki.len_key = ki.key.length();
-	};
-	
-	SubKey sk = keyScheduling(ki);
-	
-	switch(mode){
-		case '1':
-			{
-				cout << "Enter filename for encryption: ";
-				cin >> filein;
-				cout << "Enter output filename: ";
-				cin >> fileout;
-				msg1 = "encrytion";
-				msg2 = "The file is encrypted";
-				break;
-			}
-		case '2':
-			{
-				sk = DecryptionMode(sk, ki);
-				cout << "Enter filename for decryption: ";
-                                cin >> filein;
-				cout << "Enter output filename: ";
-                                cin >> fileout;
-				msg1 = "decryption";
-				msg2 = "The file is decrypted";
-				break;
-			}
-		default:
-			return 0;
-	}
+        //cout << "Please enter password: ";
+        //cin >> ki.key;
+        ki.key = "hellow_world_key";
+//      ki.key = "0123456789abcdeffedcba9876543210";
+        ki.len_key = ki.key.length();
+        while (ki.len_key != 16 && ki.len_key != 24 && ki.len_key != 32){
+                cout << "Key must 128-, 192-, or 256-bit (16, 24, or 32 bytes respectively)" << endl;
+                cout << "Please enter password: ";
+                cin >> ki.key;
+                ki.len_key = ki.key.length();
+        };
 
-	ifstream fin(filein, ios_base::in | ios_base::binary);
-	if (fin.is_open()){
-		cout << "------------" << endl;
-		cout << "File for "<< msg1 << ": " << filein << endl;
-		cout << "------------" << endl;
-	}
-	else {
+        SubKey sk = keyScheduling(ki);
+
+	cout << "Enter input filename: ";
+	cin >> filein;
+
+	if ((in = fopen(filein, "rb+")) == NULL){
 		perror("File not found");
 		return __LINE__;
-	}
-
-	ofstream fout(fileout, ios_base::app | ios_base::binary);
-	if (fout.is_open()){
-		cout << "------------" << endl;
-                //cout << "File " << fileout << " created" << endl;
-		cout << "------------" << endl;
         }
-        else {
-                perror("File not created");
+
+	uint64_t size = get_file_size(in);
+	cout << "Enter output filename: ";
+	cin >> fileout;
+	if ((out = fopen(fileout, "wb+")) == NULL){
+		perror("File not found");
                 return __LINE__;
         }
-	
-	int size = 0;
 
-	while (!fin.eof()){
-		uint8_t buff[16]{};
-                fin.read((char*)buff, 16);
-		
-                cout << buff;
-		mainProc = ProcBlock(buff, sk, ki);
-		fout << mainProc;
-		size += strlen((char*)buff);
-
-		delete [] mainProc;
+	switch(mode){
+                case '1':
+                        {
+				Encrypt_file(in, out, ki, size, sk);
+                                break;
+                        }
+                case '2':
+                        {
+				sk = DecryptionMode(sk, ki);
+		                Decrypt_file(in, out, ki, size, sk);
+                                break;
+                        }
+                default:
+                        return 0;
 	}
 
-	cout << size << endl;	
-	fin.close();
-	fout.close();
+	fclose(in);
+	fclose(out);
 
-/*
-	uint8_t *dec;		
-	cout << dataT << endl;
-	int size = strlen(len);
-	int count = 0;
-	while(count < size){
-		uint8_t *buffT = new uint8_t[16];
-		int i = 0;
-		for (; i < 16; i++) {
-			if (dataT[i+count] == '\0') break;
-			buffT[i] = dataT[i+count];}
-		
-		mainProc = ProcBlock(buffT, sk, ki);
-		cout << mainProc << endl;
-		sk = DecryptionMode(sk, ki);
-		dec = ProcBlock(mainProc, sk, ki);
-		cout << dec;
-		count += i;
-		delete [] buffT;
-	}
-	cout << endl;*/
 	return 0;
 }

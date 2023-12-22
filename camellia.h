@@ -42,9 +42,9 @@ uint64_t DataToUint64(uint8_t *arr, int count){
 }
 
 void Uint64ToMass(uint8_t *res, uint64_t param, int i){
-	res[7 + i] = (uint8_t)(param & MASK8);
+	res[7 + i] = (uint8_t)param & MASK8;
 	param = param >> 8;
-	res[6 + i] = (uint8_t)(param & MASK8);
+	res[6 + i] = (uint8_t)param & MASK8;
 	param = param >> 8;
 	res[5 + i] = (uint8_t)param & MASK8;
 	param = param >> 8;
@@ -68,7 +68,7 @@ void Roll128(uint64_t& high, uint64_t& low, int offset){
 
 uint32_t Roll32(uint32_t param, int offset){
 	uint32_t res = param << offset;
-	res = res | (uint32_t)(param >> (32 - offset));
+	res = res | ((uint32_t)param >> (32 - offset));
 	return res;
 }
 
